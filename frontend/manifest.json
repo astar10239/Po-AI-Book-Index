@@ -1,0 +1,21 @@
+{
+  "name": "Po! AI Book Learner",
+  "short_name": "Po!",
+  "description": "Progressive Web App serving as an AI learning companion for books.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/assets/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/assets/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

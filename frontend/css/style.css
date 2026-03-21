@@ -1,0 +1,61 @@
+/* Custom Styles for Po! PWA */
+:root {
+    --primary-color: #4f46e5;
+    --sidebar-width: 300px;
+}
+
+[data-bs-theme="dark"] {
+    --bs-body-bg: #121212;
+    --bs-body-color: #e0e0e0;
+}
+
+body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Chat bubble aesthetics */
+.chat-container {
+    background-image: var(--bs-tertiary-bg);
+}
+
+.chat-bubble {
+    max-width: 85%;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.chat-bubble.user {
+    background-color: var(--bs-primary);
+    color: white;
+    margin-left: auto;
+}
+
+.chat-bubble.ai {
+    margin-right: auto;
+    border-bottom-left-radius: 0 !important;
+}
+
+.chat-bubble.user {
+    border-bottom-right-radius: 0 !important;
+}
+
+/* Reader sidebar interaction */
+.list-group-item {
+    cursor: pointer;
+}
+
+.list-group-item:hover {
+    background-color: var(--bs-secondary-bg);
+}
+
+/* Smooth view transitions */
+.app-view {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
