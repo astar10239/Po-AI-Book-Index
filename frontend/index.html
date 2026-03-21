@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,7 +10,11 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <link rel="stylesheet" href="/css/style.css">
     <link rel="manifest" href="/manifest.json">
+    <!-- Three.js + PointerLockControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 </head>
+
 <body>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom sticky-top">
@@ -50,17 +55,65 @@
     <!-- Main Content Container (SPA views rendered here) -->
     <main class="container my-4" id="app-container">
         <!-- Dashboard View (Default) -->
-        <div id="view-dashboard" class="app-view">
-            <h2 class="mb-4">Your Library</h2>
-            <div class="row g-4" id="books-grid">
-                <!-- Books will be injected here -->
-                <div class="text-center text-muted py-5">
-                    <div class="spinner-border" role="status"></div>
-                    <p class="mt-2">Loading books...</p>
+        <div id="view-dashboard" class="app-view p-0 m-0 overflow-hidden"
+            style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 50;">
+            <!-- 3D Canvas -->
+            <div id="3d-canvas-container" class="w-100 h-100 bg-black">
+                <canvas id="three-canvas" class="w-100 h-100 d-block"></canvas>
+            </div>
+
+            <!-- FPS Crosshair -->
+            <div id="crosshair"
+                class="position-absolute top-50 start-50 translate-middle text-white fw-bold fs-4 user-select-none pointer-events-none"
+                style="text-shadow: 0 0 2px black; z-index: 60;">+</div>
+
+            <!-- Hover Tooltip -->
+            <div id="book-tooltip"
+                class="d-none position-absolute top-50 start-50 translate-middle-x mt-4 badge bg-light text-dark shadow fs-6 py-2 px-3 border border-secondary"
+                style="z-index: 60; pointer-events: none;">
+                <i class="bi bi-book"></i> <span id="tooltip-title">Book</span><br>
+                <small class="text-muted">Click to Read</small>
+            </div>
+
+            <!-- Start Panel Overlay (Shown before PointerLock) -->
+            <div id="start-overlay"
+                class="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-dark bg-opacity-75 text-white"
+                style="z-index: 70; cursor: pointer;">
+                <h1 class="display-3 fw-bold mb-4"><i class="bi bi-buildings me-3 text-primary"></i>Po's Library</h1>
+
+                <!-- Navbar overlay inside 3D view -->
+                <div class="d-flex gap-3 mb-5">
+                    <button class="btn btn-lg btn-outline-success border-2 shadow shadow-sm"
+                        onclick="app.openNewBookModal(event)">
+                        <i class="bi bi-plus-lg me-2"></i> Add New Book
+                    </button>
+                    <button class="btn btn-lg btn-outline-primary border-2 shadow-sm"
+                        onclick="app.navigate('quizzes'); event.stopPropagation();">
+                        <i class="bi bi-patch-question me-2"></i> All Quizzes
+                    </button>
+                    <button class="btn btn-lg btn-outline-info border-2 shadow-sm"
+                        onclick="app.openChat(); event.stopPropagation();">
+                        <i class="bi bi-chat-dots me-2"></i> Global AI Chat
+                    </button>
+                    <button class="btn btn-lg btn-outline-secondary border-2 shadow-sm"
+                        onclick="app.navigate('search'); event.stopPropagation();">
+                        <i class="bi bi-search me-2"></i> Search
+                    </button>
+                </div>
+
+                <div
+                    class="text-center p-4 bg-black bg-opacity-50 rounded-4 border border-secondary shadow-lg click-to-play-btn">
+                    <h3 class="mb-3">Click anywhere to explore</h3>
+                    <p class="lead mb-0"><i class="bi bi-controller me-2"></i><strong>WASD</strong> to Move |
+                        <strong>Mouse</strong> to Look</p>
+                </div>
+
+                <div id="loading-books-indicator" class="mt-4 d-none text-info">
+                    <span class="spinner-border spinner-border-sm me-2"></span> Building Library...
                 </div>
             </div>
         </div>
-        
+
         <!-- Quizzes Global View -->
         <div id="view-quizzes" class="app-view d-none">
             <h2 class="mb-4"><i class="bi bi-patch-question text-success me-2"></i>My Quizzes</h2>
@@ -90,21 +143,24 @@
                     </button>
                 </div>
             </div>
-            
-            <div id="upload-progress-banner" class="alert alert-info d-none mb-3 border-0 d-flex align-items-center shadow-sm">
+
+            <div id="upload-progress-banner"
+                class="alert alert-info d-none mb-3 border-0 d-flex align-items-center shadow-sm">
                 <div class="spinner-grow spinner-grow-sm me-3 text-primary" role="status"></div>
                 <div>
                     <strong>AI Processing...</strong><br>
-                    <small>Po is reading your document in the background. It will beautifully appear here when ready.</small>
+                    <small>Po is reading your document in the background. It will beautifully appear here when
+                        ready.</small>
                 </div>
             </div>
-            
+
             <div class="row">
                 <!-- Sidebar: Chapters -->
                 <div class="col-md-4 mb-4">
                     <div class="card h-100">
                         <div class="card-header fw-bold">Segments / Chapters</div>
-                        <div class="list-group list-group-flush overflow-auto rounded-bottom" id="reader-chapters" style="max-height: 70vh;">
+                        <div class="list-group list-group-flush overflow-auto rounded-bottom" id="reader-chapters"
+                            style="max-height: 70vh;">
                             <!-- Chapters injected here -->
                         </div>
                     </div>
@@ -116,18 +172,21 @@
                             <span class="fw-bold" id="reader-summary-title">Overview</span>
                         </div>
                         <div class="card-body overflow-auto" id="reader-summary-content" style="max-height: 70vh;">
-                            <p class="text-muted">Select a chapter from the left to view its summary, or ask Po a question.</p>
+                            <p class="text-muted">Select a chapter from the left to view its summary, or ask Po a
+                                question.</p>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-        
+
         <!-- Search View -->
         <div id="view-search" class="app-view d-none">
             <h2 class="mb-4">Global Semantic Search</h2>
             <div class="input-group input-group-lg shadow-sm mb-4">
-                <input type="text" id="search-input" class="form-control border-0 bg-body-tertiary" placeholder="Search across all books by concept or phrase..." onkeypress="if(event.key === 'Enter') app.performSearch()">
+                <input type="text" id="search-input" class="form-control border-0 bg-body-tertiary"
+                    placeholder="Search across all books by concept or phrase..."
+                    onkeypress="if(event.key === 'Enter') app.performSearch()">
                 <button class="btn btn-primary" onclick="app.performSearch()"><i class="bi bi-search"></i></button>
             </div>
             <div id="search-results" class="d-flex flex-column gap-3">
@@ -137,7 +196,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Fullscreen Chat View -->
         <div id="view-chat" class="app-view d-none flex-column" style="height: calc(100vh - 75px);">
             <!-- Chat Header -->
@@ -152,21 +211,26 @@
                     </button>
                 </div>
             </div>
-            
+
             <!-- Messages Area -->
             <div class="flex-grow-1 overflow-auto p-3 p-md-4 d-flex flex-column gap-4 pb-5 mb-3" id="chat-messages">
                 <div class="d-flex align-items-start">
-                    <div class="bg-body-secondary p-3 rounded-4 text-break shadow-sm" style="max-width: 85%; font-size: 1.05rem;">
-                        <i class="bi bi-robot text-primary me-2"></i> Hi there! Ask me anything about your uploaded books, or have me search your library for specific topics.
+                    <div class="bg-body-secondary p-3 rounded-4 text-break shadow-sm"
+                        style="max-width: 85%; font-size: 1.05rem;">
+                        <i class="bi bi-robot text-primary me-2"></i> Hi there! Ask me anything about your uploaded
+                        books, or have me search your library for specific topics.
                     </div>
                 </div>
             </div>
-            
+
             <!-- Sticky Input Area -->
             <div class="mt-auto p-3 p-md-4 bg-body sticky-bottom border-top">
                 <div class="input-group input-group-lg shadow rounded-pill p-1 bg-body-tertiary border">
-                    <input type="text" class="form-control border-0 bg-transparent shadow-none px-4" id="chat-input" placeholder="Message Po..." onkeypress="app.handleChatEnter(event)" style="font-size: 1.05rem;" autocomplete="off">
-                    <button class="btn btn-primary rounded-circle m-1 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;" onclick="app.sendChatMessage()">
+                    <input type="text" class="form-control border-0 bg-transparent shadow-none px-4" id="chat-input"
+                        placeholder="Message Po..." onkeypress="app.handleChatEnter(event)" style="font-size: 1.05rem;"
+                        autocomplete="off">
+                    <button class="btn btn-primary rounded-circle m-1 d-flex align-items-center justify-content-center"
+                        style="width: 45px; height: 45px;" onclick="app.sendChatMessage()">
                         <i class="bi bi-arrow-up text-white stroke-2"></i>
                     </button>
                 </div>
@@ -218,11 +282,13 @@
                 </div>
                 <div class="modal-body text-center">
                     <p class="text-muted">Take or select up to 6 photos to add them as a single segment.</p>
-                    <input type="file" accept="image/*" capture="environment" id="cameraInput" class="form-control mb-3" multiple>
+                    <input type="file" accept="image/*" capture="environment" id="cameraInput" class="form-control mb-3"
+                        multiple>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="button" class="btn btn-primary" onclick="app.uploadScannedImage()">Upload & Process</button>
+                    <button type="button" class="btn btn-primary" onclick="app.uploadScannedImage()">Upload &
+                        Process</button>
                 </div>
             </div>
         </div>
@@ -260,16 +326,20 @@
                         </div>
                         <div class="mb-3">
                             <label for="bookTags" class="form-label">Tags (comma-separated)</label>
-                            <input type="text" class="form-control" id="bookTags" placeholder="e.g. Science, Study, Urgent">
+                            <input type="text" class="form-control" id="bookTags"
+                                placeholder="e.g. Science, Study, Urgent">
                         </div>
                         <div class="mb-3">
-                            <label for="bookPrompt" class="form-label text-primary"><i class="bi bi-magic me-1"></i> Custom AI Extraction Prompt</label>
-                            <textarea class="form-control bg-body-tertiary" id="bookPrompt" rows="3" placeholder="Tell exactly what kind of insights you want Po to extract from this book. (e.g. 'Extract all the key mathematical formulas and historical dates.')"></textarea>
+                            <label for="bookPrompt" class="form-label text-primary"><i class="bi bi-magic me-1"></i>
+                                Custom AI Extraction Prompt</label>
+                            <textarea class="form-control bg-body-tertiary" id="bookPrompt" rows="3"
+                                placeholder="Tell exactly what kind of insights you want Po to extract from this book. (e.g. 'Extract all the key mathematical formulas and historical dates.')"></textarea>
                             <div class="form-text">Leave blank to use the default high-level summarization.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Complexity (1-10)</label>
-                            <input type="range" class="form-range" min="1" max="10" step="1" id="bookComplexity" value="5">
+                            <input type="range" class="form-range" min="1" max="10" step="1" id="bookComplexity"
+                                value="5">
                             <div class="d-flex justify-content-between text-muted small">
                                 <span>1 (Brief summaries)</span>
                                 <span>10 (Deep analysis)</span>
@@ -278,7 +348,8 @@
                         <div class="mb-3">
                             <label class="form-label">Upload PDF</label>
                             <input class="form-control" type="file" id="bookPdf" accept=".pdf">
-                            <div class="form-text">Optional. You can also start an empty book and use your camera later.</div>
+                            <div class="form-text">Optional. You can also start an empty book and use your camera later.
+                            </div>
                         </div>
                     </form>
                 </div>
@@ -295,21 +366,25 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content bg-body shadow-lg">
                 <div class="modal-header border-bottom-0">
-                    <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square text-primary me-2"></i>Edit Book Info</h5>
+                    <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square text-primary me-2"></i>Edit Book Info
+                    </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <form id="editBookForm">
                         <div class="mb-3">
                             <label for="editBookTags" class="form-label">Tags (comma-separated)</label>
-                            <input type="text" class="form-control" id="editBookTags" placeholder="e.g. Science, Study, Urgent">
+                            <input type="text" class="form-control" id="editBookTags"
+                                placeholder="e.g. Science, Study, Urgent">
                         </div>
                         <div class="mb-3">
-                            <label for="editBookPrompt" class="form-label text-primary"><i class="bi bi-magic me-1"></i> Custom AI Extraction Prompt</label>
+                            <label for="editBookPrompt" class="form-label text-primary"><i class="bi bi-magic me-1"></i>
+                                Custom AI Extraction Prompt</label>
                             <textarea class="form-control bg-body-tertiary" id="editBookPrompt" rows="3"></textarea>
                         </div>
                         <div class="d-grid mt-4">
-                            <button type="button" class="btn btn-primary" onclick="app.submitEditBook()">Save Changes</button>
+                            <button type="button" class="btn btn-primary" onclick="app.submitEditBook()">Save
+                                Changes</button>
                         </div>
                     </form>
                 </div>
@@ -323,4 +398,5 @@
     <script src="/js/api.js"></script>
     <script src="/js/app.js"></script>
 </body>
+
 </html>

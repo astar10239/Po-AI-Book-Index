@@ -59,3 +59,19 @@ body {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* 3D Library UI */
+.click-to-play-btn {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.click-to-play-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(0,200,255,0.4) !important;
+}
+
+body:has(#view-dashboard:not(.d-none)) .navbar {
+    display: none !important; /* hide default navbar in 3D mode */
+}
+body:has(#view-dashboard:not(.d-none)) {
+    overflow: hidden; /* Prevent scrolling behind absolute 3D canvas */
+}

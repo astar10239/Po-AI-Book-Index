@@ -77,7 +77,17 @@ const app = {
 
         if (viewId === 'dashboard') {
             this.loadBooks();
-        } else if (viewId === 'reader' && bookId) {
+            if (this.init3DLibrary && !this.engine3D.active) {
+                // Delay slightly to let DOM render
+                setTimeout(() => this.init3DLibrary(), 50);
+            }
+        } else {
+            // Stop 3D engine if leaving dashboard
+            if (this.stop3DLibrary) this.stop3DLibrary();
+        }
+
+        if (viewId === 'reader' && bookId) {
+            localStorage.setItem(`lastRead_${bookId}`, Date.now());
             this.loadBookDetails(bookId);
         } else if (viewId === 'quizzes') {
             this.loadQuizzes();
@@ -94,37 +104,587 @@ const app = {
         }
     },
 
-    renderBooksGrid() {
-        const grid = document.getElementById('books-grid');
-        grid.innerHTML = '';
+    calculateUserLevel() {
+        let totalXp = 0;
+        let tagsCount = {};
         
-        if (this.books.length === 0) {
-            grid.innerHTML = `<div class="text-center text-muted py-5"><i class="bi bi-journal-x fs-1"></i><p>Your library is empty. Click 'New Book' to start.</p></div>`;
-            return;
+        // Calculate XP and Tag Mastery
+        this.books.forEach(b => {
+            totalXp += 50; // base per book
+            totalXp += (b.chapter_count || 0) * 10;
+            if (b.complexity) totalXp += b.complexity * 5;
+            
+            if (b.tags) {
+                b.tags.forEach(t => {
+                    const tagLower = t.toLowerCase();
+                    tagsCount[tagLower] = (tagsCount[tagLower] || 0) + 1;
+                });
+            }
+        });
+        
+        const level = Math.floor(totalXp / 200) + 1;
+        const currentLevelXp = totalXp % 200;
+        const xpProgress = (currentLevelXp / 200) * 100;
+        
+        let tierClass = 'shelf-tier-wood';
+        let tierName = 'Wood Tier';
+        if (level >= 5) {
+            tierClass = 'shelf-tier-cyber';
+            tierName = 'Cyber Tier';
+        } else if (level >= 3) {
+            tierClass = 'shelf-tier-metal';
+            tierName = 'Metal Tier';
         }
 
-        this.books.forEach(b => {
-            let tagsHtml = '';
-            if (b.tags && b.tags.length > 0) {
-                b.tags.forEach(t => tagsHtml += `<span class="badge bg-secondary me-1">${t}</span>`);
-            }
-            
-            const col = document.createElement('div');
-            col.className = 'col-12 col-md-4 col-lg-3';
-            col.innerHTML = `
-                <div class="card h-100 book-card shadow-sm border-0 overflow-hidden" style="cursor: pointer" onclick="app.navigate('reader', ${b.id})">
-                    <div class="card-img-top bg-primary bg-gradient d-flex align-items-center justify-content-center" style="height: 140px;">
-                        <span class="fs-4 fw-bold text-white text-center w-100 px-3 text-truncate">${b.title}</span>
-                    </div>
-                    <div class="card-body">
-                        <h5 class="card-title text-truncate">${b.title}</h5>
-                        <div class="mb-2">${tagsHtml}</div>
-                        <p class="card-text text-muted small">${b.chapter_count || 0} Segment(s)</p>
-                    </div>
-                </div>
-            `;
-            grid.appendChild(col);
+        // Update UI
+        ['', '-mobile'].forEach(suffix => {
+            const badge = document.getElementById(`user-level-badge${suffix}`);
+            if (badge) badge.innerText = level;
+            const tLabel = document.getElementById(`user-tier-label${suffix}`);
+            if (tLabel) tLabel.innerText = tierName;
+            const xpLabel = document.getElementById(`user-xp-label${suffix}`);
+            if (xpLabel) xpLabel.innerText = `${totalXp} XP`;
+            const bar = document.getElementById(`user-xp-bar${suffix}`);
+            if (bar) bar.style.width = `${xpProgress}%`;
         });
+        
+        return { tierClass, tagsCount };
+    },
+
+    getStringHash(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        return hash;
+    },
+
+    getBookColor(title) {
+        const colors = [
+            0xc62828, // red
+            0x1565c0, // blue
+            0x2e7d32, // green
+            0x6a1b9a, // purple
+            0xd84315, // orange
+            0x283593, // indigo
+            0x00695c, // teal
+            0x4e342e  // brown
+        ];
+        const index = Math.abs(this.getStringHash(title)) % colors.length;
+        return colors[index];
+    },
+
+    engine3D: {
+        active: false,
+        scene: null,
+        camera: null,
+        renderer: null,
+        controls: null,
+        raycaster: null,
+        mouse: null,
+        rafId: null,
+        objects: [], // Collidable floor/walls
+        racks: [], // Data struct for 3D racks
+        interactiveBooks: [], // { mesh, bookData }
+        mixers: [], // For animations if needed
+        prevTime: performance.now(),
+        velocity: new THREE.Vector3(),
+        direction: new THREE.Vector3(),
+        keys: { forward: false, backward: false, left: false, right: false }
+    },
+
+    init3DLibrary() {
+        if (this.engine3D.active) return;
+        
+        const canvas = document.getElementById('three-canvas');
+        if (!canvas || !window.THREE) return;
+        
+        this.engine3D.active = true;
+        
+        // 1. Scene Setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e); // Dark academia ambient
+        scene.fog = new THREE.FogExp2(0x1a1a2e, 0.015);
+        this.engine3D.scene = scene;
+
+        // 2. Camera Setup
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.6, 10); // 1.6m high (eye level)
+        this.engine3D.camera = camera;
+
+        // 3. Renderer Setup
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.engine3D.renderer = renderer;
+
+        // 4. Lighting - Make it cozy!
+        const ambientLight = new THREE.AmbientLight(0xffecd2, 0.4); // Warm ambient
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0xffd59e, 1.2, 100); // Warm bulb
+        pointLight.position.set(0, 7, 0);
+        pointLight.castShadow = true;
+        scene.add(pointLight);
+        
+        // Desk lamp light
+        const spotLight = new THREE.SpotLight(0xffa500, 1.5);
+        spotLight.position.set(-6, 4, -12);
+        spotLight.angle = Math.PI / 4;
+        spotLight.penumbra = 0.8;
+        spotLight.castShadow = true;
+        scene.add(spotLight);
+
+        // 5. Build Environment
+        this.build3DRoom();
+
+        // 6. Controls
+        const controls = new THREE.PointerLockControls(camera, document.body);
+        this.engine3D.controls = controls;
+
+        const startOverlay = document.getElementById('start-overlay');
+        startOverlay.addEventListener('click', () => {
+             controls.lock();
+        });
+
+        controls.addEventListener('lock', () => {
+            startOverlay.classList.add('d-none');
+            document.getElementById('crosshair').classList.remove('d-none');
+        });
+
+        controls.addEventListener('unlock', () => {
+            startOverlay.classList.remove('d-none');
+            document.getElementById('crosshair').classList.add('d-none');
+            document.getElementById('book-tooltip').classList.add('d-none');
+        });
+
+        scene.add(controls.getObject());
+
+        // Keyboard bindings
+        this.onKeyDown = (e) => this.handleKey3D(e.code, true);
+        this.onKeyUp = (e) => this.handleKey3D(e.code, false);
+        document.addEventListener('keydown', this.onKeyDown);
+        document.addEventListener('keyup', this.onKeyUp);
+
+        // Resize handler
+        this.onWindowResize = () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        };
+        window.addEventListener('resize', this.onWindowResize);
+
+        // Interaction Check (Raycaster)
+        this.engine3D.raycaster = new THREE.Raycaster();
+        this.engine3D.mouse = new THREE.Vector2(0, 0); // Always center for FPS
+        
+        // Native Click listener for shooting the ray
+        this.onClick = () => this.handleInteractionClick();
+        document.addEventListener('click', this.onClick);
+
+        // 7. Render Books and Racks
+        this.render3DBookshelves();
+
+        // 8. Start Loop
+        this.engine3D.prevTime = performance.now();
+        this.animate3D();
+    },
+
+    stop3DLibrary() {
+        if (!this.engine3D.active) return;
+        this.engine3D.active = false;
+        if (this.engine3D.rafId) cancelAnimationFrame(this.engine3D.rafId);
+        
+        if (this.engine3D.controls) this.engine3D.controls.unlock();
+        
+        document.removeEventListener('keydown', this.onKeyDown);
+        document.removeEventListener('keyup', this.onKeyUp);
+        window.removeEventListener('resize', this.onWindowResize);
+        document.removeEventListener('click', this.onClick);
+        
+        // Clean memory
+        this.engine3D.interactiveBooks = [];
+        this.engine3D.racks = [];
+        this.engine3D.objects = [];
+        if(this.engine3D.renderer) this.engine3D.renderer.dispose();
+    },
+
+    handleKey3D(code, isDown) {
+        switch (code) {
+            case 'ArrowUp':
+            case 'KeyW':
+                this.engine3D.keys.forward = isDown;
+                break;
+            case 'ArrowLeft':
+            case 'KeyA':
+                this.engine3D.keys.left = isDown;
+                break;
+            case 'ArrowDown':
+            case 'KeyS':
+                this.engine3D.keys.backward = isDown;
+                break;
+            case 'ArrowRight':
+            case 'KeyD':
+                this.engine3D.keys.right = isDown;
+                break;
+        }
+    },
+
+    build3DRoom() {
+        const scene = this.engine3D.scene;
+        
+        // Floor (Hardwood)
+        const floorGeo = new THREE.PlaneGeometry(40, 40, 10, 10);
+        floorGeo.rotateX(-Math.PI / 2);
+        const floorMat = new THREE.MeshStandardMaterial({ 
+            color: 0x4a3018, 
+            roughness: 0.7 
+        });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.receiveShadow = true;
+        scene.add(floor);
+        this.engine3D.objects.push(floor);
+
+        // Cozy Carpet / Rug in the center
+        const rugGeo = new THREE.PlaneGeometry(16, 16);
+        rugGeo.rotateX(-Math.PI / 2);
+        const rugMat = new THREE.MeshStandardMaterial({ color: 0x8b2500, roughness: 1.0 }); // Deep red
+        const rug = new THREE.Mesh(rugGeo, rugMat);
+        rug.position.y = 0.05; // Slightly above floor
+        rug.receiveShadow = true;
+        scene.add(rug);
+
+        // Walls (Warm wallpaper)
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0xeeddcc, roughness: 0.9 });
+        const wallGeo = new THREE.PlaneGeometry(40, 12);
+        
+        const walls = [
+            { pos: [0, 6, -20], rot: [0, 0, 0] },     // North
+            { pos: [0, 6, 20], rot: [0, Math.PI, 0] }, // South
+            { pos: [-20, 6, 0], rot: [0, Math.PI/2, 0] }, // West
+            { pos: [20, 6, 0], rot: [0, -Math.PI/2, 0] }  // East
+        ];
+
+        walls.forEach(w => {
+            const wall = new THREE.Mesh(wallGeo, wallMat);
+            wall.position.set(...w.pos);
+            wall.rotation.set(...w.rot);
+            wall.receiveShadow = true;
+            scene.add(wall);
+            this.engine3D.objects.push(wall);
+        });
+
+        // --- Add Cozy Furniture ---
+        
+        // 1. A Study Desk
+        const woodMat = new THREE.MeshStandardMaterial({ color: 0x3d2314, roughness: 0.8 });
+        const deskGroup = new THREE.Group();
+        
+        // Desk Top
+        const deskTop = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 3), woodMat);
+        deskTop.position.set(0, 2.8, 0);
+        deskTop.castShadow = true;
+        deskGroup.add(deskTop);
+        
+        // Desk Legs
+        const legGeo = new THREE.BoxGeometry(0.2, 2.8, 0.2);
+        const legsData = [
+            [-2.8, 1.4, -1.3], [2.8, 1.4, -1.3],
+            [-2.8, 1.4, 1.3], [2.8, 1.4, 1.3]
+        ];
+        legsData.forEach(pos => {
+            const leg = new THREE.Mesh(legGeo, woodMat);
+            leg.position.set(...pos);
+            leg.castShadow = true;
+            deskGroup.add(leg);
+        });
+
+        // Desk Lamp (Simple shape)
+        const lampBase = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.1, 16), new THREE.MeshStandardMaterial({color: 0x222222}));
+        lampBase.position.set(-2, 2.95, -0.5);
+        deskGroup.add(lampBase);
+        const lampStem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1, 8), new THREE.MeshStandardMaterial({color: 0x888888}));
+        lampStem.position.set(-2, 3.4, -0.5);
+        lampStem.rotation.x = Math.PI / 8;
+        deskGroup.add(lampStem);
+        const lampHead = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.5, 16), new THREE.MeshStandardMaterial({color: 0xdddddd}));
+        lampHead.position.set(-2, 3.8, -0.3);
+        lampHead.rotation.x = -Math.PI / 4;
+        deskGroup.add(lampHead);
+
+        deskGroup.position.set(-8, 0, -15); // Place it near the North-West wall
+        deskGroup.rotation.y = Math.PI / 8; // Slight angle
+        scene.add(deskGroup);
+
+        // 2. House Plants
+        this.createPottedPlant(-15, -15);
+        this.createPottedPlant(15, -15);
+        this.createPottedPlant(15, 15);
+        this.createPottedPlant(-15, 15);
+    },
+
+    createPottedPlant(x, z) {
+        const scene = this.engine3D.scene;
+        const potMat = new THREE.MeshStandardMaterial({ color: 0xbc4a3c, roughness: 0.9 }); // Terracotta
+        const plantMat = new THREE.MeshStandardMaterial({ color: 0x2e8b57, roughness: 0.6 }); // Sea green
+
+        const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.5, 1.5, 16), potMat);
+        pot.position.set(x, 0.75, z);
+        pot.castShadow = true;
+        scene.add(pot);
+
+        // 3 Leaves (low poly style)
+        const leafGeo = new THREE.SphereGeometry(0.6, 5, 5); // Diamond/low poly look
+        [[-0.3, 2.0, 0], [0.3, 1.8, 0.3], [0, 2.2, -0.3]].forEach((pos, i) => {
+            const leaf = new THREE.Mesh(leafGeo, plantMat);
+            leaf.position.set(x + pos[0], pos[1], z + pos[2]);
+            leaf.rotation.set(Math.random(), Math.random(), Math.random());
+            leaf.castShadow = true;
+            scene.add(leaf);
+        });
+    },
+
+    createTextLabel(text) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        
+        ctx.fillStyle = '#1a1a1a'; // Dark background
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = '#c69c6d'; // Gold border
+        ctx.lineWidth = 10;
+        ctx.strokeRect(5, 5, canvas.width-10, canvas.height-10);
+
+        ctx.fillStyle = '#ffffff'; // White text
+        ctx.font = 'bold 60px "Georgia", serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.MeshBasicMaterial({ map: texture });
+        const geometry = new THREE.PlaneGeometry(3, 0.75);
+        const mesh = new THREE.Mesh(geometry, material);
+        return mesh;
+    },
+
+    renderBooksGrid() {
+        // Intercept native 2D grid rendering to trigger 3D rebuild
+        // UI overlay updates handled in init3DLibrary.
+        if (this.engine3D.active) {
+            this.render3DBookshelves();
+        }
+    },
+    render3DBookshelves() {
+        if(!this.engine3D.scene) return;
+        const scene = this.engine3D.scene;
+
+        // Cleanup existing racks/books before rebuilding
+        this.engine3D.racks.forEach(r => scene.remove(r.group));
+        this.engine3D.interactiveBooks = [];
+        this.engine3D.racks = [];
+
+        // 1. Tag Aggregation (Find top 6 tags)
+        let tagCounts = {};
+        this.books.forEach(b => {
+            if(b.tags && b.tags.length > 0) {
+                b.tags.forEach(t => {
+                    const tag = t.trim().toUpperCase();
+                    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                });
+            } else {
+                tagCounts['UNCATEGORIZED'] = (tagCounts['UNCATEGORIZED'] || 0) + 1;
+            }
+        });
+
+        const sortedTags = Object.keys(tagCounts).sort((a,b) => tagCounts[b] - tagCounts[a]).slice(0, 6);
+        if(sortedTags.length === 0) sortedTags.push("EMPTY LIBRARY");
+
+        // 2. Define Rack Positions (Circle around center)
+        const radius = 12;
+        const rackPositions = [];
+        for(let i = 0; i < sortedTags.length; i++) {
+            const angle = (i / sortedTags.length) * Math.PI * 2;
+            rackPositions.push({
+                x: Math.cos(angle) * radius,
+                z: Math.sin(angle) * radius,
+                rotY: -angle + Math.PI / 2, // Face the origin (0,0)
+                tag: sortedTags[i]
+            });
+        }
+
+        // 3. Materials
+        const woodMat = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.9 });
+        
+        // 4. Build Racks
+        rackPositions.forEach(rp => {
+            const rackGroup = new THREE.Group();
+            rackGroup.position.set(rp.x, 0, rp.z);
+            rackGroup.rotation.y = rp.rotY;
+
+            // Simple 3D Bookshelf Mesh
+            const backBoard = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 0.2), woodMat);
+            backBoard.position.set(0, 1.5, -0.4);
+            rackGroup.add(backBoard);
+
+            // Create 3 Shelves per rack (y = 0.5, 1.5, 2.5)
+            const shelfLevels = [0.1, 1.1, 2.1];
+            shelfLevels.forEach(y => {
+                const shelf = new THREE.Mesh(new THREE.BoxGeometry(4, 0.1, 1), woodMat);
+                shelf.position.set(0, y, 0);
+                shelf.receiveShadow = true;
+                shelf.castShadow = true;
+                rackGroup.add(shelf);
+            });
+            
+            // Side boards
+            const sideLeft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3, 1), woodMat);
+            sideLeft.position.set(-2, 1.5, 0);
+            rackGroup.add(sideLeft);
+            
+            const sideRight = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3, 1), woodMat);
+            sideRight.position.set(2, 1.5, 0);
+            rackGroup.add(sideRight);
+
+            // Add Tag Label on top!
+            const labelMesh = this.createTextLabel(rp.tag);
+            labelMesh.position.set(0, 3.5, 0); // Above the backboard
+            rackGroup.add(labelMesh);
+
+            scene.add(rackGroup);
+            this.engine3D.racks.push({ group: rackGroup, tag: rp.tag, currentShelf: 0, currentX: -1.7 });
+        });
+
+        // 5. Place Books!
+        this.books.forEach(b => {
+             // Find matching rack
+             let targetRack = this.engine3D.racks.find(r => b.tags && b.tags.some(t => t.trim().toUpperCase() === r.tag));
+             if(!targetRack) targetRack = this.engine3D.racks.find(r => r.tag === 'UNCATEGORIZED') || this.engine3D.racks[0];
+
+             // Check if shelf is full
+             if (targetRack.currentX > 1.7) {
+                 targetRack.currentX = -1.7;
+                 targetRack.currentShelf++;
+             }
+
+             // If rack totally full, skip rendering (or dump on floor, but let's skip for simplicity)
+             if (targetRack.currentShelf > 2) return;
+
+             // Create Book Mesh
+             const bookColor = this.getBookColor(b.title);
+             const bookMat = new THREE.MeshStandardMaterial({ color: bookColor, roughness: 0.4 });
+             // Thickness: 0.1 to 0.3 based on ID, Height: 0.6 to 0.8
+             const thickness = 0.1 + ((b.id * 17) % 20) / 100;
+             const height = 0.6 + ((b.id * 13) % 20) / 100;
+             const bookGeo = new THREE.BoxGeometry(thickness, height, 0.6);
+             const bookMesh = new THREE.Mesh(bookGeo, bookMat);
+
+             // Y = shelf level + half height of book
+             const shelfYPositions = [0.1, 1.1, 2.1]; // from shelf building
+             const yPos = shelfYPositions[targetRack.currentShelf] + (height / 2) + 0.05;
+             
+             bookMesh.position.set(targetRack.currentX, yPos, 0);
+             bookMesh.castShadow = true;
+
+             // Slightly randomize rotation to look natural
+             bookMesh.rotation.y = (Math.random() - 0.5) * 0.1;
+             
+             targetRack.group.add(bookMesh);
+             
+             // Register for interaction
+             this.engine3D.interactiveBooks.push({ mesh: bookMesh, bookData: b });
+
+             // Advance X position for next book
+             targetRack.currentX += (thickness + 0.05); 
+        });
+    },
+
+    handleInteractionClick() {
+        if (!this.engine3D.controls || !this.engine3D.controls.isLocked) return;
+
+        // Raycast from center camera
+        this.engine3D.raycaster.setFromCamera(this.engine3D.mouse, this.engine3D.camera);
+        
+        // Collect all interactive book meshes
+        const interactiveMeshes = this.engine3D.interactiveBooks.map(b => b.mesh);
+        
+        const intersects = this.engine3D.raycaster.intersectObjects(interactiveMeshes);
+
+        if (intersects.length > 0) {
+            const hitMesh = intersects[0].object;
+            const bookRecord = this.engine3D.interactiveBooks.find(b => b.mesh === hitMesh);
+            
+            if (bookRecord) {
+                 // Trigger Navigation
+                 this.engine3D.controls.unlock();
+                 this.navigate('reader', bookRecord.bookData.id);
+            }
+        }
+    },
+
+    animate3D() {
+        if (!this.engine3D.active) return;
+        this.engine3D.rafId = requestAnimationFrame(() => this.animate3D());
+
+        const e = this.engine3D;
+        const time = performance.now();
+        
+        // FPS Movement Physics
+        if (e.controls && e.controls.isLocked) {
+            const delta = (time - e.prevTime) / 1000;
+            
+            e.velocity.x -= e.velocity.x * 10.0 * delta;
+            e.velocity.z -= e.velocity.z * 10.0 * delta;
+            
+            e.direction.z = Number(e.keys.forward) - Number(e.keys.backward);
+            e.direction.x = Number(e.keys.right) - Number(e.keys.left);
+            e.direction.normalize(); // consistent speed in all directions
+            
+            const speed = 40.0;
+            if (e.keys.forward || e.keys.backward) e.velocity.z -= e.direction.z * speed * delta;
+            if (e.keys.left || e.keys.right) e.velocity.x -= e.direction.x * speed * delta;
+            
+            e.controls.moveRight(-e.velocity.x * delta);
+            e.controls.moveForward(-e.velocity.z * delta);
+            
+            // Constrain to room (floor is 40x40, so bounds are -18 to 18 to account for camera collision)
+            const pos = e.controls.getObject().position;
+            if (pos.x < -18) pos.x = -18;
+            if (pos.x > 18) pos.x = 18;
+            if (pos.z < -18) pos.z = -18;
+            if (pos.z > 18) pos.z = 18;
+            pos.y = 1.6; // Keep locked on the floor
+
+            // Interactive Hover (Crosshair Tooltip)
+            e.raycaster.setFromCamera(e.mouse, e.camera);
+            const interactiveMeshes = e.interactiveBooks.map(b => b.mesh);
+            const intersects = e.raycaster.intersectObjects(interactiveMeshes);
+            const tooltip = document.getElementById('book-tooltip');
+
+            if (intersects.length > 0 && intersects[0].distance < 6) { // Must be close
+                const hitMesh = intersects[0].object;
+                const bookRecord = e.interactiveBooks.find(b => b.mesh === hitMesh);
+                if (bookRecord && tooltip) {
+                    tooltip.classList.remove('d-none');
+                    document.getElementById('tooltip-title').innerText = bookRecord.bookData.title;
+                    // Optional: Make hovered book pop out slightly
+                    hitMesh.position.z = Math.min(hitMesh.position.z + 0.05, 0.2); 
+                }
+            } else {
+                if(tooltip) tooltip.classList.add('d-none');
+                // Push back books slowly
+                interactiveMeshes.forEach(m => {
+                    if (m.position.z > 0) m.position.z = Math.max(0, m.position.z - 0.02);
+                });
+            }
+        }
+        
+        e.prevTime = time;
+        e.renderer.render(e.scene, e.camera);
     },
 
     openNewBookModal() {

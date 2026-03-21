@@ -4,4 +4,5 @@
 # auto-handles Ctrl+C graceful shutdowns and prevents SIGSEGV Python fork crashes
 # ==============================================================================
 
+cd backend
 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES celery -A tasks.celery worker --loglevel=info
