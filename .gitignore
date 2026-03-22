@@ -1,5 +1,20 @@
+# Python
 *.pyc
+__pycache__/
+*.so
+venv/
+.venv/
+env/
 .env
 *.env
-.config
+
+# Local Storage
+uploads/
+screenshots/
+
+# System / IDE
 .DS_Store
+.vscode/
+.idea/
+.config
+*.log

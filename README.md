@@ -2,7 +2,11 @@
 
 # Po! AI Book Library 📖🤖
 
-A state-of-the-art, personal AI-powered library system. Po! transforms your collection of PDFs and images into a searchable, summarizable, and interactive experience. Chat with your books, get instant chapter summaries, and read in a distraction-free Kindle-styled environment.
+Fully Local AI Book Reader, PDF Summarizer, Quiz Generator & Searchable Library – Free Kindle Alternative for All Books (PDFs, Images)
+
+Transform PDFs and images into a personal AI-powered book library. Chat with books, get instant AI chapter summaries, auto-generated quizzes, and semantic search – all offline, private, and free.
+
+Experience a distraction-free Kindle-like reader with local AI for book summarization, interactive Q&A, and full-text discovery across your entire collection.
 
 Version 1.0.1
 

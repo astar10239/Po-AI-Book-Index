@@ -2,10 +2,15 @@ from flask import Flask, jsonify
 from config import Config
 from models import db
 from sqlalchemy import text
+import os
+from flask_cors import CORS
 
 def create_app(config_class=Config):
     app = Flask(__name__, static_folder='../frontend', static_url_path='/')
     app.config.from_object(config_class)
+    
+    # Enable CORS for production
+    CORS(app)
 
     db.init_app(app)
 
@@ -45,4 +50,6 @@ def create_app(config_class=Config):
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Use environment variable for debug mode, default to False for safety
+    debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    app.run(host='0.0.0.0', port=5000, debug=debug_mode)
