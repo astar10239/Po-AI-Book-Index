@@ -33,12 +33,19 @@ def upload_pdf(book_id):
         file.save(save_path)
         
         book.cover_path = save_path # Temporary until thumbnail generation
+        book.processing_status = 'processing'
         db.session.commit()
         
         # Trigger async background task for PDF chunking/embedding
-        process_pdf_task.delay(book_id, save_path)
+        result = process_pdf_task.delay(book_id, save_path)
+        book.active_task_id = result.id
+        db.session.commit()
         
-        return jsonify({'msg': 'PDF uploaded successfully. Processing started.', 'path': save_path}), 202
+        return jsonify({
+            'msg': 'PDF uploaded successfully. Processing started.', 
+            'book_id': book_id,
+            'task_id': result.id
+        }), 202
         
     return jsonify({'error': 'Invalid file type. Only PDF is allowed.'}), 400
 
@@ -70,9 +77,17 @@ def upload_image(book_id):
         
     if not book.cover_path:
         book.cover_path = saved_paths[0]
-        db.session.commit()
         
-    # Trigger async background task passing the LIST of paths
-    process_image_task.delay(book_id, saved_paths, session_id)
+    book.processing_status = 'processing'
+    db.session.commit()
     
-    return jsonify({'msg': f'{len(saved_paths)} images uploaded successfully. Processing started.', 'paths': saved_paths}), 202
+    # Trigger async background task passing the LIST of paths
+    result = process_image_task.delay(book_id, saved_paths, session_id)
+    book.active_task_id = result.id
+    db.session.commit()
+    
+    return jsonify({
+        'msg': f'{len(saved_paths)} images uploaded successfully. Processing started.',
+        'book_id': book_id,
+        'task_id': result.id
+    }), 202

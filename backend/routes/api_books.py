@@ -67,6 +67,19 @@ def delete_book(book_id):
     db.session.commit()
     return jsonify({'msg': 'Book deleted successfully'}), 200
 
+@books_bp.route('/<int:book_id>/cancel', methods=['POST'])
+def cancel_task(book_id):
+    """Revoke the active processing task for a book."""
+    book = Book.query.get_or_404(book_id)
+    if book.active_task_id:
+        from tasks import celery
+        celery.control.revoke(book.active_task_id, terminate=True)
+        book.processing_status = 'cancelled'
+        book.active_task_id = None
+        db.session.commit()
+        return jsonify({'msg': 'Task cancelled successfully'}), 200
+    return jsonify({'error': 'No active task found for this book'}), 404
+
 from models import KnowledgeNode, UploadSegment, Tag
 import os
 from config import Config

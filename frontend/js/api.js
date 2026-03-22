@@ -115,5 +115,12 @@ const api = {
             body: JSON.stringify({ num_questions: numQuestions, difficulty })
         });
         return await res.json();
+    },
+
+    async cancelTask(bookId) {
+        const res = await fetch(`${this.baseUrl}/books/${bookId}/cancel`, {
+            method: 'POST'
+        });
+        return await res.json();
     }
 };

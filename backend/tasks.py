@@ -32,9 +32,11 @@ def process_pdf_task(book_id, pdf_path):
             book = Book.query.get(book_id)
             if not book: return
             
-            # Simple chunking: 5 pages per segment
-            pages_per_segment = 5
+            # Simple chunking: 30 pages per segment
+            pages_per_segment = 30
             total_pages = len(doc)
+            book.total_pages = total_pages
+            db.session.commit()
             
             for i in range(0, total_pages, pages_per_segment):
                 start = i
@@ -83,9 +85,23 @@ def process_pdf_task(book_id, pdf_path):
                         db.session.add(node)
                 
                 db.session.commit()
+
+                # Update progress
+                book.processed_pages = end
+                db.session.commit()
                 
+            book.processing_status = 'completed'
+            book.active_task_id = None
+            db.session.commit()
+            
             print(f"Finished processing PDF for book {book_id}")
     except Exception as e:
+        app = get_celery_app()
+        with app.app_context():
+            book = Book.query.get(book_id)
+            if book:
+                book.processing_status = 'failed'
+                db.session.commit()
         print(f"Error processing PDF task: {str(e)}")
 
 import base64
@@ -144,9 +160,19 @@ def process_image_task(book_id, image_paths, session_id):
                 )
                 db.session.add(node)
                 db.session.commit()
+            
+            book.processing_status = 'completed'
+            book.active_task_id = None
+            db.session.commit()
                 
             print(f"Finished processing {len(image_paths)} images for book {book_id}")
     except Exception as e:
+        app = get_celery_app()
+        with app.app_context():
+            book = Book.query.get(book_id)
+            if book:
+                book.processing_status = 'failed'
+                db.session.commit()
         print(f"Error processing image task: {str(e)}")
 
 @celery.task

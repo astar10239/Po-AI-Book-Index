@@ -23,6 +23,10 @@ class Book(db.Model):
     cover_path = db.Column(db.String(512), nullable=True)
     complexity = db.Column(db.Integer, default=5) # 1-10
     custom_prompt = db.Column(db.Text, nullable=True)
+    active_task_id = db.Column(db.String(255), nullable=True)
+    processing_status = db.Column(db.String(50), nullable=True) # 'processing', 'completed', 'failed', 'cancelled'
+    total_pages = db.Column(db.Integer, nullable=True)
+    processed_pages = db.Column(db.Integer, nullable=True, default=0)
     created_at = db.Column(db.DateTime(timezone=True), server_default=func.now())
     
     segments = db.relationship('UploadSegment', backref='book', lazy=True, cascade="all, delete-orphan")
@@ -41,6 +45,10 @@ class Book(db.Model):
             'cover_path': self.cover_path,
             'complexity': self.complexity,
             'custom_prompt': self.custom_prompt,
+            'active_task_id': self.active_task_id,
+            'processing_status': self.processing_status,
+            'total_pages': self.total_pages,
+            'processed_pages': self.processed_pages,
             'tags': [t.name for t in self.tags],
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'chapter_count': len(self.segments)

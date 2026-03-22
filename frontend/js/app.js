@@ -723,7 +723,12 @@ const app = {
             
             if (fileInput.files.length > 0) {
                 // If PDF was uploaded, show processing banner immediately in the new reader view
-                document.getElementById('upload-progress-banner').classList.remove('d-none');
+                const banner = document.getElementById('upload-progress-banner');
+                if (banner) banner.classList.remove('d-none');
+                const pBar = document.getElementById('upload-progress-bar');
+                if (pBar) pBar.style.width = '2%';
+                const pText = document.getElementById('progress-text');
+                if (pText) pText.innerText = 'Starting...';
             }
             
             document.getElementById('newBookForm').reset();
@@ -782,16 +787,78 @@ const app = {
                 }
                 try {
                     const refreshedBook = await api.getBook(id);
+                    const banner = document.getElementById('upload-progress-banner');
+                    const pBar = document.getElementById('upload-progress-bar');
+                    const pText = document.getElementById('progress-text');
+
+                    if (refreshedBook.processing_status === 'processing') {
+                        banner.classList.remove('d-none');
+                        if (refreshedBook.total_pages) {
+                            const percent = Math.round((refreshedBook.processed_pages / refreshedBook.total_pages) * 100);
+                            pBar.style.width = `${percent}%`;
+                            pText.innerText = `${refreshedBook.processed_pages} / ${refreshedBook.total_pages} pages`;
+                        } else {
+                            pText.innerText = 'Processing...';
+                        }
+                    } else if (refreshedBook.processing_status === 'completed') {
+                        banner.classList.add('d-none');
+                    } else if (refreshedBook.processing_status === 'failed') {
+                        banner.classList.remove('d-none');
+                        banner.className = 'alert alert-danger mb-3 border-0 d-flex flex-column shadow-sm';
+                        pText.innerText = 'Processing Failed';
+                        pBar.classList.remove('progress-bar-animated');
+                        pBar.classList.add('bg-danger');
+                    } else if (refreshedBook.processing_status === 'cancelled') {
+                        banner.classList.remove('d-none');
+                        banner.className = 'alert alert-warning mb-3 border-0 d-flex flex-column shadow-sm';
+                        pText.innerText = 'Processing Cancelled';
+                        pBar.classList.remove('progress-bar-animated');
+                        pBar.classList.add('bg-warning');
+                    }
+
                     // If we have new segments processed by Celery, refresh the whole UI!
                     if (refreshedBook.segments.length > this.currentBook.segments.length) {
-                        document.getElementById('upload-progress-banner').classList.add('d-none');
-                        this.loadBookDetails(id); 
+                        this.currentBook = refreshedBook;
+                        this.renderReaderSegments();
+                    }
+                    
+                    if (['completed', 'failed', 'cancelled'].includes(refreshedBook.processing_status)) {
+                        clearInterval(this.pollingInterval);
                     }
                 } catch(e) {}
             }, 3000);
         } catch (e) {
              document.getElementById('reader-book-title').innerText = "Error loading book";
              console.error(e);
+        }
+    },
+
+    renderReaderSegments() {
+        if (!this.currentBook) return;
+        const list = document.getElementById('reader-chapters');
+        list.innerHTML = '';
+        this.currentBook.segments.forEach((s, idx) => {
+            const btn = document.createElement('button');
+            btn.className = 'list-group-item list-group-item-action';
+            btn.innerHTML = `<strong>Seq ${s.index}</strong>: ${s.title || 'Untitled Segment'}`;
+            btn.onclick = () => this.showSegmentSummary(s);
+            list.appendChild(btn);
+        });
+        // Select last added if not viewing any
+        const activeItem = list.querySelector('.active');
+        if (!activeItem && this.currentBook.segments.length > 0) {
+            this.showSegmentSummary(this.currentBook.segments[0]);
+        }
+    },
+
+    async cancelCurrentTask() {
+        if (!this.currentBook || !this.currentBook.id) return;
+        if (!confirm("Are you sure you want to stop processing this book?")) return;
+        try {
+            await api.cancelTask(this.currentBook.id);
+            // Status will be updated by polling next cycle
+        } catch (e) {
+            alert("Error cancelling task: " + e.message);
         }
     },
     
