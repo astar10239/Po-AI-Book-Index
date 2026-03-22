@@ -73,6 +73,7 @@ def cancel_task(book_id):
     book = Book.query.get_or_404(book_id)
     if book.active_task_id:
         from tasks import celery
+        print(f"[!] Revoking active task {book.active_task_id} for Book {book_id}...")
         celery.control.revoke(book.active_task_id, terminate=True)
         book.processing_status = 'cancelled'
         book.active_task_id = None

@@ -2,6 +2,8 @@ const app = {
     currentView: 'dashboard',
     currentBook: null,
     books: [],
+    kindleModeActive: false,
+    currentSegmentIndex: 0,
     
     init() {
         this.setupTheme();
@@ -16,6 +18,9 @@ const app = {
         // Handle Hash Routing
         window.addEventListener('hashchange', () => this.handleRouting());
         this.handleRouting();
+
+        // Kindle Event Listeners
+        document.addEventListener('keydown', (e) => this.handleKindleKey(e));
     },
 
     handleRouting() {
@@ -756,77 +761,105 @@ const app = {
                     <i class="bi bi-trash"></i> Delete Book
                 </button>
             `;
-            
+            const banner = document.getElementById('upload-progress-banner');
+            const pBar = document.getElementById('upload-progress-bar');
+            const pText = document.getElementById('progress-text');
+
+            // Help show status immediately on load/refresh if pending or processing
+            if (['pending', 'processing', null].includes(this.currentBook.processing_status)) {
+                banner.classList.remove('d-none');
+                if (this.currentBook.total_pages) {
+                    const percent = Math.round((this.currentBook.processed_pages / this.currentBook.total_pages) * 100);
+                    pBar.style.width = `${percent}%`;
+                    pText.innerText = `${this.currentBook.processed_pages} / ${this.currentBook.total_pages} pages`;
+                } else {
+                    pText.innerText = this.currentBook.processing_status === 'pending' ? 'Pending Upload...' : 'Processing...';
+                }
+            } else if (['failed', 'cancelled'].includes(this.currentBook.processing_status)) {
+                banner.classList.remove('d-none');
+                banner.className = `alert alert-${this.currentBook.processing_status === 'failed' ? 'danger' : 'warning'} mb-3 border-0 d-flex flex-column shadow-sm`;
+                pText.innerText = `Processing ${this.currentBook.processing_status === 'failed' ? 'Failed' : 'Cancelled'}`;
+                pBar.classList.remove('progress-bar-animated');
+                pBar.classList.add(`bg-${this.currentBook.processing_status === 'failed' ? 'danger' : 'warning'}`);
+            }
+
             const list = document.getElementById('reader-chapters');
             list.innerHTML = '';
             
             if (this.currentBook.segments.length === 0) {
                  list.innerHTML = '<div class="p-3 text-muted small">No segments yet. Upload a PDF or add images.</div>';
-                 return;
-            }
-            
-            this.currentBook.segments.forEach((s, idx) => {
-                const btn = document.createElement('button');
-                btn.className = 'list-group-item list-group-item-action';
-                btn.innerHTML = `<strong>Seq ${s.index}</strong>: ${s.title || 'Untitled Segment'}`;
-                btn.onclick = () => this.showSegmentSummary(s);
-                list.appendChild(btn);
-            });
-            
-            // Show first by default
-            if(this.currentBook.segments.length > 0) {
-                this.showSegmentSummary(this.currentBook.segments[0]);
+                 document.getElementById('reader-summary-title').innerText = 'Overview';
+                 document.getElementById('reader-summary-content').innerHTML = '<p class="text-muted">Select a chapter from the left to view its summary, or ask Po a question.</p>';
+                 // Don't return! We need to set up polling below if it's still processing.
+            } else {
+                this.currentBook.segments.forEach((s, idx) => {
+                    const btn = document.createElement('button');
+                    btn.className = 'list-group-item list-group-item-action';
+                    btn.innerHTML = `<strong>Seq ${s.index}</strong>: ${s.title || 'Untitled Segment'}`;
+                    btn.onclick = () => this.showSegmentSummary(s);
+                    list.appendChild(btn);
+                });
+                
+                // Show first by default
+                if(this.currentBook.segments.length > 0) {
+                    this.showSegmentSummary(this.currentBook.segments[0]);
+                }
             }
             
             // Auto-refresh segments while in Reader view
             if(this.pollingInterval) clearInterval(this.pollingInterval);
-            this.pollingInterval = setInterval(async () => {
-                if (this.currentView !== 'reader' || !this.currentBook) {
-                    clearInterval(this.pollingInterval);
-                    return;
-                }
-                try {
-                    const refreshedBook = await api.getBook(id);
-                    const banner = document.getElementById('upload-progress-banner');
-                    const pBar = document.getElementById('upload-progress-bar');
-                    const pText = document.getElementById('progress-text');
-
-                    if (refreshedBook.processing_status === 'processing') {
-                        banner.classList.remove('d-none');
-                        if (refreshedBook.total_pages) {
-                            const percent = Math.round((refreshedBook.processed_pages / refreshedBook.total_pages) * 100);
-                            pBar.style.width = `${percent}%`;
-                            pText.innerText = `${refreshedBook.processed_pages} / ${refreshedBook.total_pages} pages`;
-                        } else {
-                            pText.innerText = 'Processing...';
-                        }
-                    } else if (refreshedBook.processing_status === 'completed') {
-                        banner.classList.add('d-none');
-                    } else if (refreshedBook.processing_status === 'failed') {
-                        banner.classList.remove('d-none');
-                        banner.className = 'alert alert-danger mb-3 border-0 d-flex flex-column shadow-sm';
-                        pText.innerText = 'Processing Failed';
-                        pBar.classList.remove('progress-bar-animated');
-                        pBar.classList.add('bg-danger');
-                    } else if (refreshedBook.processing_status === 'cancelled') {
-                        banner.classList.remove('d-none');
-                        banner.className = 'alert alert-warning mb-3 border-0 d-flex flex-column shadow-sm';
-                        pText.innerText = 'Processing Cancelled';
-                        pBar.classList.remove('progress-bar-animated');
-                        pBar.classList.add('bg-warning');
-                    }
-
-                    // If we have new segments processed by Celery, refresh the whole UI!
-                    if (refreshedBook.segments.length > this.currentBook.segments.length) {
-                        this.currentBook = refreshedBook;
-                        this.renderReaderSegments();
-                    }
-                    
-                    if (['completed', 'failed', 'cancelled'].includes(refreshedBook.processing_status)) {
+            
+            // Only poll if it's still pending or processing
+            if (['pending', 'processing', null].includes(this.currentBook.processing_status)) {
+                this.pollingInterval = setInterval(async () => {
+                    if (this.currentView !== 'reader' || !this.currentBook) {
                         clearInterval(this.pollingInterval);
+                        return;
                     }
-                } catch(e) {}
-            }, 3000);
+                    try {
+                        const refreshedBook = await api.getBook(id);
+                        
+                        if (['pending', 'processing', null].includes(refreshedBook.processing_status)) {
+                            banner.classList.remove('d-none');
+                            if (refreshedBook.total_pages) {
+                                const percent = Math.round((refreshedBook.processed_pages / refreshedBook.total_pages) * 100);
+                                pBar.style.width = `${percent}%`;
+                                pText.innerText = `${refreshedBook.processed_pages} / ${refreshedBook.total_pages} pages`;
+                            } else {
+                                pText.innerText = refreshedBook.processing_status === 'pending' ? 'Pending...' : 'Processing...';
+                            }
+                        } else if (refreshedBook.processing_status === 'completed') {
+                            banner.classList.add('d-none');
+                        } else if (refreshedBook.processing_status === 'failed') {
+                            banner.classList.remove('d-none');
+                            banner.className = 'alert alert-danger mb-3 border-0 d-flex flex-column shadow-sm';
+                            pText.innerText = 'Processing Failed';
+                            pBar.classList.remove('progress-bar-animated');
+                            pBar.classList.add('bg-danger');
+                        } else if (refreshedBook.processing_status === 'cancelled') {
+                            banner.classList.remove('d-none');
+                            banner.className = 'alert alert-warning mb-3 border-0 d-flex flex-column shadow-sm';
+                            pText.innerText = 'Processing Cancelled';
+                            pBar.classList.remove('progress-bar-animated');
+                            pBar.classList.add('bg-warning');
+                        }
+
+                        // If we have new segments processed by Celery, refresh the whole UI!
+                        if (refreshedBook.segments.length > this.currentBook.segments.length) {
+                            const wasAtEnd = this.currentBook.segments.length === 0;
+                            this.currentBook = refreshedBook;
+                            this.renderReaderSegments();
+                            if (wasAtEnd && refreshedBook.segments.length > 0) {
+                                this.showSegmentSummary(refreshedBook.segments[0]);
+                            }
+                        }
+                        
+                        if (['completed', 'failed', 'cancelled'].includes(refreshedBook.processing_status)) {
+                            clearInterval(this.pollingInterval);
+                        }
+                    } catch(e) {}
+                }, 3000);
+            }
         } catch (e) {
              document.getElementById('reader-book-title').innerText = "Error loading book";
              console.error(e);
@@ -861,7 +894,6 @@ const app = {
             alert("Error cancelling task: " + e.message);
         }
     },
-    
     showSegmentSummary(segment) {
         document.getElementById('reader-summary-title').innerHTML = `
             ${segment.title || `Segment ${segment.index}`}
@@ -896,7 +928,77 @@ const app = {
             `;
         }
         
-        document.getElementById('reader-summary-content').innerHTML = content;
+        const summaryView = document.getElementById('reader-summary-content');
+        summaryView.innerHTML = content;
+        summaryView.onclick = () => this.toggleKindleMode(true);
+        
+        const kindleContent = document.getElementById('kindle-content');
+        if (kindleContent) kindleContent.innerHTML = content;
+
+        if (this.currentBook && this.currentBook.segments) {
+            this.currentSegmentIndex = this.currentBook.segments.findIndex(s => s.id === segment.id);
+            const progress = document.getElementById('kindle-progress');
+            if (progress) progress.innerText = `${this.currentSegmentIndex + 1} / ${this.currentBook.segments.length}`;
+        }
+
+        const list = document.getElementById('reader-chapters');
+        if (list) {
+            Array.from(list.children).forEach((btn, idx) => {
+                if (idx === this.currentSegmentIndex) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+        }
+    },
+
+    toggleKindleMode(show) {
+        this.kindleModeActive = show;
+        const reader = document.getElementById('kindle-reader');
+        if (show) {
+            reader.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        } else {
+            reader.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+    },
+
+    handleKindleClick(e) {
+        if (!this.kindleModeActive) return;
+        
+        // If clicking the close button or anything else specific, handled by its own listener (if bubbling stopped)
+        // But here we handle left/right clicks for navigation
+        const x = e.clientX;
+        const width = window.innerWidth;
+        
+        if (x < width * 0.3) {
+            this.navigateKindle(-1);
+        } else if (x > width * 0.7) {
+            this.navigateKindle(1);
+        } else {
+            // Click in middle toggles OFF if user wants, but user said "on click go fullscreen/off"
+            // So clicking anywhere in the middle closes it.
+            if (e.target.tagName !== 'A' && e.target.tagName !== 'IMG' && !e.target.closest('details')) {
+                this.toggleKindleMode(false);
+            }
+        }
+    },
+
+    handleKindleKey(e) {
+        if (!this.kindleModeActive) return;
+        if (e.key === 'ArrowRight' || e.key === ' ') this.navigateKindle(1);
+        if (e.key === 'ArrowLeft') this.navigateKindle(-1);
+        if (e.key === 'Escape') this.toggleKindleMode(false);
+    },
+
+    navigateKindle(direction) {
+        if (!this.currentBook || !this.currentBook.segments) return;
+        let newIndex = this.currentSegmentIndex + direction;
+        
+        if (newIndex >= 0 && newIndex < this.currentBook.segments.length) {
+            this.showSegmentSummary(this.currentBook.segments[newIndex]);
+            // Scroll to top of kindle reader
+            document.getElementById('kindle-reader').scrollTop = 0;
+        }
     },
 
     async deleteBook() {

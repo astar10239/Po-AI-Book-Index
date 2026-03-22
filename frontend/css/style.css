@@ -75,3 +75,73 @@ body:has(#view-dashboard:not(.d-none)) .navbar {
 body:has(#view-dashboard:not(.d-none)) {
     overflow: hidden; /* Prevent scrolling behind absolute 3D canvas */
 }
+
+/* Kindle Reading Mode */
+#kindle-reader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 2000;
+    overflow-y: auto;
+    background-color: var(--bs-body-bg);
+    padding: 40px 20px;
+    display: none;
+    cursor: pointer;
+}
+
+#kindle-reader.active {
+    display: block;
+}
+
+.kindle-content {
+    max-width: 800px;
+    margin: 0 auto;
+    padding-bottom: 100px;
+    line-height: 1.8;
+}
+
+.kindle-content h1, .kindle-content h2, .kindle-content h3 {
+    margin-top: 2.5rem;
+    margin-bottom: 1.5rem;
+    font-weight: 700;
+    color: var(--bs-primary);
+}
+
+.kindle-content h1 { font-size: 1.8rem; }
+.kindle-content h2 { font-size: 1.5rem; }
+.kindle-content h3 { font-size: 1.3rem; }
+
+.kindle-content p {
+    margin-bottom: 1.8rem;
+    font-size: 1.15rem;
+}
+
+/* Navigation indicators */
+.kindle-nav {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.5);
+    color: white;
+    padding: 8px 20px;
+    border-radius: 30px;
+    font-size: 0.9rem;
+    pointer-events: none;
+    z-index: 2001;
+}
+
+.kindle-close {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 2001;
+}
+
+/* Fix for H1-H3 in normal reader too as per request */
+#reader-summary-content h1 { font-size: 1.5rem; margin-top: 20px; }
+#reader-summary-content h2 { font-size: 1.3rem; margin-top: 15px; }
+#reader-summary-content h3 { font-size: 1.15rem; margin-top: 12px; }
+#reader-summary-content p { margin-bottom: 15px; }

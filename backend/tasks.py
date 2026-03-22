@@ -32,11 +32,13 @@ def process_pdf_task(book_id, pdf_path):
             book = Book.query.get(book_id)
             if not book: return
             
-            # Simple chunking: 30 pages per segment
-            pages_per_segment = 30
+            # Simple chunking: 10 pages per segment
+            pages_per_segment = 10
             total_pages = len(doc)
             book.total_pages = total_pages
             db.session.commit()
+            
+            print(f"[*] Starting PDF processing for Book ID: {book_id} ('{book.title}') - Total pages: {total_pages}")
             
             for i in range(0, total_pages, pages_per_segment):
                 start = i
@@ -46,8 +48,11 @@ def process_pdf_task(book_id, pdf_path):
                 for page_num in range(start, end):
                     page = doc.load_page(page_num)
                     text_content += page.get_text() + "\n"
-                    
-                if not text_content.strip(): continue
+                
+                print(f"[>] Processing chunk: Pages {start+1}-{end} of {total_pages} for Book {book_id}...")
+                if not text_content.strip(): 
+                    print(f"[!] Warning: No text found in pages {start+1}-{end}. Skipping chunk.")
+                    continue
                 
                 # Summarize via user's custom directions if present
                 summary = generate_summary(text_content[:Config.MAX_EXTRACT_CHARS], complexity=book.complexity, custom_prompt=book.custom_prompt)
@@ -89,12 +94,13 @@ def process_pdf_task(book_id, pdf_path):
                 # Update progress
                 book.processed_pages = end
                 db.session.commit()
+                print(f"[+] Completed chunk: Pages {start+1}-{end}. Progress saved.")
                 
             book.processing_status = 'completed'
             book.active_task_id = None
             db.session.commit()
             
-            print(f"Finished processing PDF for book {book_id}")
+            print(f"[✓] Finished processing ALL segments for Book {book_id}.")
     except Exception as e:
         app = get_celery_app()
         with app.app_context():
@@ -102,7 +108,7 @@ def process_pdf_task(book_id, pdf_path):
             if book:
                 book.processing_status = 'failed'
                 db.session.commit()
-        print(f"Error processing PDF task: {str(e)}")
+        print(f"[✘] ERROR processing PDF task (Book {book_id}): {str(e)}")
 
 import base64
 
@@ -118,6 +124,8 @@ def process_image_task(book_id, image_paths, session_id):
         with app.app_context():
             book = Book.query.get(book_id)
             if not book: return
+            
+            print(f"[*] Starting Image Batch processing for Book ID: {book_id} ('{book.title}') - {len(image_paths)} images")
             
             combined_text = ""
             
@@ -165,7 +173,7 @@ def process_image_task(book_id, image_paths, session_id):
             book.active_task_id = None
             db.session.commit()
                 
-            print(f"Finished processing {len(image_paths)} images for book {book_id}")
+            print(f"[✓] Finished processing {len(image_paths)} images for book {book_id}.")
     except Exception as e:
         app = get_celery_app()
         with app.app_context():
@@ -173,7 +181,7 @@ def process_image_task(book_id, image_paths, session_id):
             if book:
                 book.processing_status = 'failed'
                 db.session.commit()
-        print(f"Error processing image task: {str(e)}")
+        print(f"[✘] ERROR processing image task (Book {book_id}): {str(e)}")
 
 @celery.task
 def summarize_chat_history(session_id):

@@ -24,7 +24,7 @@ class Book(db.Model):
     complexity = db.Column(db.Integer, default=5) # 1-10
     custom_prompt = db.Column(db.Text, nullable=True)
     active_task_id = db.Column(db.String(255), nullable=True)
-    processing_status = db.Column(db.String(50), nullable=True) # 'processing', 'completed', 'failed', 'cancelled'
+    processing_status = db.Column(db.String(50), nullable=True, default='pending') # 'pending', 'processing', 'completed', 'failed', 'cancelled'
     total_pages = db.Column(db.Integer, nullable=True)
     processed_pages = db.Column(db.Integer, nullable=True, default=0)
     created_at = db.Column(db.DateTime(timezone=True), server_default=func.now())
