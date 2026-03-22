@@ -1,3 +1,5 @@
+![PO](po.jpg)
+
 # Po! AI Book Library 📖🤖
 
 A state-of-the-art, personal AI-powered library system. Po! transforms your collection of PDFs and images into a searchable, summarizable, and interactive experience. Chat with your books, get instant chapter summaries, and read in a distraction-free Kindle-styled environment.
