@@ -19,6 +19,16 @@ Version 1.0.1
 
 ---
 
+
+
+## Screenshots
+
+![1](screenshots/image1.png) ![1](screenshots/image2.png) ![3](screenshots/image3.png) ![4](screenshots/image4.png) ![5](screenshots/image5.png)
+
+
+
+
+
 ## 🏗️ Architecture
 
 ### **The Stack**
