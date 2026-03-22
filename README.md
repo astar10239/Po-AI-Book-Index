@@ -81,6 +81,9 @@ python app.py
 ```bash
 cd backend
 celery -A tasks.celery worker --loglevel=info
+
+## For Mac
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES celery -A tasks.celery worker --loglevel=info
 ```
 
 ### 6. Access the App
