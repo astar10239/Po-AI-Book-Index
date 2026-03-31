@@ -88,13 +88,51 @@ const api = {
         return await res.json();
     },
 
-    async askChat(query, bookId = null, sessionId = null) {
-        const res = await fetch(`${this.baseUrl}/chat/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, book_id: bookId, session_id: sessionId })
-        });
-        return await res.json();
+    async askChatStream(query, bookId = null, sessionId = null, callbacks = {}) {
+        try {
+            const res = await fetch(`${this.baseUrl}/chat/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, book_id: bookId, session_id: sessionId })
+            });
+
+            if (!res.ok) {
+                if (callbacks.onError) callbacks.onError('Server error: ' + res.status);
+                return;
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n\n');
+                buffer = lines.pop(); // keep the incomplete line in the buffer
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            if (data.type === 'error') {
+                                if (callbacks.onError) callbacks.onError(data.message);
+                            } else if (data.type === 'chunk') {
+                                if (callbacks.onChunk) callbacks.onChunk(data);
+                            } else if (data.type === 'done') {
+                                if (callbacks.onDone) callbacks.onDone(data);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing SSE data:", line, e);
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            if (callbacks.onError) callbacks.onError(e.message);
+        }
     },
 
     // Quiz

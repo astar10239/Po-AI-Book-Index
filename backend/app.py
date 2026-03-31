@@ -20,6 +20,10 @@ def create_app(config_class=Config):
         db.session.execute(text('CREATE EXTENSION IF NOT EXISTS pg_trgm;'))
         db.session.commit()
         db.create_all()
+        
+        # Create GIN trigram index for fast text matching
+        db.session.execute(text('CREATE INDEX IF NOT EXISTS knowledge_nodes_text_trgm_idx ON knowledge_nodes USING gin (text_content gin_trgm_ops);'))
+        db.session.commit()
 
     @app.route('/health')
     def health_check():

@@ -1013,26 +1013,7 @@ const app = {
         }
     },
 
-    handleKindleClick(e) {
-        if (!this.kindleModeActive) return;
-        
-        // If clicking the close button or anything else specific, handled by its own listener (if bubbling stopped)
-        // But here we handle left/right clicks for navigation
-        const x = e.clientX;
-        const width = window.innerWidth;
-        
-        if (x < width * 0.3) {
-            this.navigateKindle(-1);
-        } else if (x > width * 0.7) {
-            this.navigateKindle(1);
-        } else {
-            // Click in middle toggles OFF if user wants, but user said "on click go fullscreen/off"
-            // So clicking anywhere in the middle closes it.
-            if (e.target.tagName !== 'A' && e.target.tagName !== 'IMG' && !e.target.closest('details')) {
-                this.toggleKindleMode(false);
-            }
-        }
-    },
+    // Event handler for kindle clicks removed - we now strictly use dedicated UI buttons.
 
     handleKindleKey(e) {
         if (!this.kindleModeActive) return;
@@ -1119,24 +1100,53 @@ const app = {
         const bgBookTitle = this.currentBook ? this.currentBook.title : "Global Library";
         document.getElementById('chat-input').placeholder = `Asking Po about ${bgBookTitle}...`;
         
-        // ChatGPT style pulsing typing indicator
-        const typingId = this.addChatBubble(
-            '<div class="spinner-grow spinner-grow-sm text-primary" role="status"></div><div class="spinner-grow spinner-grow-sm text-primary mx-1" role="status" style="animation-delay: 0.2s"></div><div class="spinner-grow spinner-grow-sm text-primary" role="status" style="animation-delay: 0.4s"></div>', 
-            'ai', 
-            true
-        );
+        const bubbleId = this.addChatBubble('', 'ai', false, true); 
+        const bubbleEl = document.getElementById(bubbleId);
+        
+        let accumulatedText = "";
+        let accumulatedReasoning = "";
         
         try {
-            const res = await api.askChat(text, targetBookId, this.currentSessionId);
-            this.currentSessionId = res.session_id; // Map pointer dynamically forward
-            
-            document.getElementById(typingId).remove();
-            this.addChatBubble(res.answer || 'Sorry, I couldn\'t process that.', 'ai');
+            await api.askChatStream(text, targetBookId, this.currentSessionId, {
+                onChunk: (data) => {
+                    accumulatedText += data.content || "";
+                    accumulatedReasoning += data.reasoning || "";
+                    
+                    let html = `<i class="bi bi-robot text-primary me-2 mb-2 d-inline-block"></i> `;
+                    
+                    if (accumulatedReasoning) {
+                         html += `<details class="mb-3 text-muted small" style="background: rgba(0,0,0,0.1); padding: 5px 10px; border-left: 3px solid #6c757d; border-radius: 4px;">
+                                    <summary class="user-select-none" style="cursor: pointer;">
+                                        <i class="bi bi-cpu me-1"></i> Thinking...
+                                    </summary>
+                                    <div class="mt-2 text-wrap fst-italic" style="white-space: pre-wrap;">${this.escapeHtml(accumulatedReasoning)}</div>
+                                  </details>`;
+                    }
+                    
+                    if (accumulatedText) {
+                        html += marked.parse(accumulatedText);
+                    } else if (!accumulatedReasoning) {
+                        html += '<span class="spinner-grow spinner-grow-sm text-primary"></span>';
+                    }
+                    
+                    bubbleEl.innerHTML = html;
+                    
+                    // Auto scroll
+                    const container = document.getElementById('chat-messages');
+                    container.scrollTop = container.scrollHeight;
+                },
+                onDone: (data) => {
+                    this.currentSessionId = data.sessionId;
+                },
+                onError: (err) => {
+                    accumulatedText += "\n\n**Error:** " + err;
+                    bubbleEl.innerHTML = `<i class="bi bi-robot text-primary me-2 mb-2 d-inline-block"></i> ` + marked.parse(accumulatedText);
+                }
+            });
         } catch(e) {
-            document.getElementById(typingId).remove();
-            this.addChatBubble('Error: ' + e.message, 'ai');
+             console.error(e);
         } finally {
-            document.getElementById('chat-input').placeholder = "Message Po...";
+             document.getElementById('chat-input').placeholder = "Message Po...";
         }
     },
     
@@ -1144,9 +1154,9 @@ const app = {
         if(e.key === 'Enter') this.sendChatMessage();
     },
     
-    addChatBubble(text, sender, isHtml = false) {
+    addChatBubble(text, sender, isHtml = false, isStreaming = false) {
         const container = document.getElementById('chat-messages');
-        const id = 'msg-' + Date.now();
+        const id = 'msg-' + Date.now() + Math.floor(Math.random() * 1000);
         const wrapper = document.createElement('div');
         
         // Align user to right, AI to left
@@ -1166,10 +1176,12 @@ const app = {
         }
         bubble.style.fontSize = '1.05rem';
         
-        if (sender === 'ai' && !isHtml) {
+        if (sender === 'ai' && !isHtml && !isStreaming) {
             bubble.innerHTML = `<i class="bi bi-robot text-primary me-2 mb-2 d-block"></i> ` + marked.parse(text);
         } else if (isHtml) {
             bubble.innerHTML = text; // For the nice loading indicator
+        } else if (isStreaming) {
+            bubble.innerHTML = `<i class="bi bi-robot text-primary me-2 mb-2 d-inline-block"></i> <span class="spinner-grow spinner-grow-sm text-primary"></span>`;
         } else {
             bubble.textContent = text;
         }

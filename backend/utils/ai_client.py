@@ -80,8 +80,8 @@ def analyze_image(base64_image, prompt="Extract all the visible text from this p
         print(f"Error analyzing image: {str(e)}")
         return None
 
-def ask_question(context, question, message_history=None):
-    """Answer a question based on retrieved context (RAG)."""
+def ask_question_stream(context, question, message_history=None):
+    """Answer a question based on retrieved context (RAG) and yield chunks in real-time."""
     if message_history is None:
         message_history = []
     try:
@@ -95,9 +95,19 @@ def ask_question(context, question, message_history=None):
             model=Config.LLM_MODEL_NAME,
             messages=messages,
             temperature=0.0,
-            seed=42
+            seed=42,
+            stream=True
         )
-        return response.choices[0].message.content
+        for chunk in response:
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                content = getattr(delta, 'content', None) or ""
+                reasoning = getattr(delta, 'reasoning_content', None) or ""
+                
+                if content or reasoning:
+                    yield {"content": content, "reasoning": reasoning}
+                    
     except Exception as e:
-        print(f"Error asking question: {str(e)}")
-        return None
+        print(f"Error asking question stream: {str(e)}")
+        yield {"error": str(e)}
+

@@ -1,7 +1,8 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response, stream_with_context
 from models import db, ChatSession
-from utils.ai_client import generate_embedding, ask_question
+from utils.ai_client import generate_embedding, ask_question_stream
 from sqlalchemy import text
+import json
 
 chat_bp = Blueprint('chat_api', __name__, url_prefix='/api/chat')
 
@@ -66,28 +67,45 @@ def ask_po():
     if session_obj.summary:
         context_joined = f"### PREVIOUS CHAT HISTORY SUMMARY:\n{session_obj.summary}\n\n### RELEVANT BOOK CONTEXT:\n{context_joined}"
 
-    answer = ask_question(context_joined, query, session_obj.messages)
-    
-    # Update Session history
-    msgs = list(session_obj.messages)
-    msgs.append({"role": "user", "content": query})
-    msgs.append({"role": "assistant", "content": answer})
-    session_obj.messages = msgs
-    db.session.add(session_obj)
-    db.session.commit()
-    
-    # Automatically bound the context window utilizing a background cleanup worker
-    from config import Config
-    current_chat_len = sum(len(str(m.get('content', ''))) for m in msgs)
-    if current_chat_len > Config.CHAT_CONTEXT_WINDOW:
-        from tasks import summarize_chat_history
-        summarize_chat_history.delay(session_obj.id)
-    
-    return jsonify({
-        'session_id': session_obj.id,
-        'answer': answer,
-        'context_used': context_texts
-    }), 200
+    def generate():
+        answer_chunks = []
+        try:
+            for chunk in ask_question_stream(context_joined, query, session_obj.messages):
+                if "error" in chunk:
+                    yield f"data: {json.dumps({'type': 'error', 'message': chunk['error']})}\n\n"
+                    return
+                    
+                content = chunk.get("content", "")
+                reasoning = chunk.get("reasoning", "")
+                
+                if content:
+                    answer_chunks.append(content)
+                    
+                if content or reasoning:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': content, 'reasoning': reasoning})}\n\n"
+            
+            # Update Session history after stream completion
+            answer_text = "".join(answer_chunks)
+            msgs = list(session_obj.messages)
+            msgs.append({"role": "user", "content": query})
+            msgs.append({"role": "assistant", "content": answer_text})
+            session_obj.messages = msgs
+            db.session.add(session_obj)
+            db.session.commit()
+            
+            # Automatically bound the context window utilizing a background cleanup worker
+            from config import Config
+            current_chat_len = sum(len(str(m.get('content', ''))) for m in msgs)
+            if current_chat_len > Config.CHAT_CONTEXT_WINDOW:
+                from tasks import summarize_chat_history
+                summarize_chat_history.delay(session_obj.id)
+                
+            yield f"data: {json.dumps({'type': 'done', 'session_id': session_obj.id, 'context_used': context_texts})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @chat_bp.route('/sessions/<book_id>', methods=['GET'])
 def get_sessions(book_id):

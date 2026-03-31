@@ -20,14 +20,14 @@ def hybrid_search():
     if not query_embedding:
          return jsonify({'error': 'Failed to generate embedding for query'}), 500
     
-    # Raw SQL for Hybrid Search
-    # Using 1 - (embedding <=> :embedding) for cosine similarity
-    # Using similarity(text_content, :query) for trigram text match
+    # Raw SQL for Hybrid Search optimized with CTE
+    # This allows pgvector to use an HNSW index (if present) to fast-filter top candidates,
+    # before we perform the expensive text similarity and sorting on the filtered subset.
     sql_base = """
-    SELECT id, book_id, segment_id, text_content, 
-           1 - (embedding <=> :embedding) AS vector_score,
-           similarity(text_content, :query) AS text_score
-    FROM knowledge_nodes
+    WITH vector_matches AS (
+        SELECT id, book_id, segment_id, text_content,
+               1 - (embedding <=> :embedding) AS vector_score
+        FROM knowledge_nodes
     """
     
     params = {'embedding': str(query_embedding), 'query': query, 'limit': limit}
@@ -36,9 +36,16 @@ def hybrid_search():
         sql_base += " WHERE book_id = :book_id"
         params['book_id'] = book_id
         
-    # We rank by a weighted sum of both scores
+    # We restrict the vector match to a larger subset (e.g. 100) and then re-rank
     sql_base += """
-    ORDER BY (0.7 * (1 - (embedding <=> :embedding))) + (0.3 * similarity(text_content, :query)) DESC
+        ORDER BY embedding <=> :embedding
+        LIMIT 100
+    )
+    SELECT id, book_id, segment_id, text_content, 
+           vector_score,
+           similarity(text_content, :query) AS text_score
+    FROM vector_matches
+    ORDER BY (0.7 * vector_score) + (0.3 * similarity(text_content, :query)) DESC
     LIMIT :limit
     """
     
