@@ -32,8 +32,8 @@ def process_pdf_task(book_id, pdf_path):
             book = Book.query.get(book_id)
             if not book: return
             
-            # Simple chunking: 10 pages per segment
-            pages_per_segment = 10
+            # Simple chunking: 15 pages per segment
+            pages_per_segment = 15
             total_pages = len(doc)
             book.total_pages = total_pages
             db.session.commit()
