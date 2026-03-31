@@ -103,6 +103,7 @@ const app = {
         try {
             this.books = await api.getBooks();
             this.renderBooksGrid();
+            this.renderAllBooksList();
         } catch (e) {
             console.error("Failed to load books", e);
             document.getElementById('books-grid').innerHTML = `<div class="alert alert-danger">Failed to load library. Is the backend running?</div>`;
@@ -484,6 +485,56 @@ const app = {
             this.render3DBookshelves();
         }
     },
+
+    renderAllBooksList() {
+        const listDiv = document.getElementById('all-books-list');
+        if (!listDiv) return;
+
+        // Sort books by last read (most recent first)
+        const sortedBooks = [...this.books].sort((a, b) => {
+            const timeA = parseInt(localStorage.getItem(`lastRead_${a.id}`) || '0');
+            const timeB = parseInt(localStorage.getItem(`lastRead_${b.id}`) || '0');
+            return timeB - timeA;
+        });
+
+        if (sortedBooks.length === 0) {
+            listDiv.innerHTML = '<div class="p-4 text-center text-light">No books found. Add one to get started!</div>';
+            return;
+        }
+
+        listDiv.innerHTML = sortedBooks.map(b => {
+             const lastReadTime = parseInt(localStorage.getItem(`lastRead_${b.id}`) || '0');
+             
+             let lastReadStr = 'Never read';
+             if (lastReadTime > 0) {
+                 const diffMinutes = Math.floor((Date.now() - lastReadTime) / 60000);
+                 if (diffMinutes < 1) lastReadStr = 'Just now';
+                 else if (diffMinutes < 60) lastReadStr = `${diffMinutes}m ago`;
+                 else if (diffMinutes < 1440) lastReadStr = `${Math.floor(diffMinutes/60)}h ago`;
+                 else lastReadStr = new Date(lastReadTime).toLocaleDateString();
+             }
+
+             const tags = b.tags && b.tags.length > 0 ? b.tags.join(', ') : 'No tags';
+             
+             return `
+                <a href="javascript:void(0)" onclick="event.stopPropagation(); app.navigate('reader', ${b.id})" 
+                   class="list-group-item list-group-item-action border-bottom border-light text-white text-start d-flex justify-content-between align-items-center p-3"
+                   style="background: transparent; transition: background 0.2s;"
+                   onmouseover="this.style.background='rgba(255,255,255,0.1)'"
+                   onmouseout="this.style.background='transparent'">
+                    <div>
+                        <h5 class="mb-1 text-info fw-bold"><i class="bi bi-book me-2"></i>${b.title}</h5>
+                        <small class="text-secondary opacity-75">${tags}</small>
+                    </div>
+                    <div class="text-end">
+                        <small class="text-muted d-block" style="font-size: 0.75rem;">Last opened</small>
+                        <small class="text-light fw-medium">${lastReadStr}</small>
+                    </div>
+                </a>
+             `;
+        }).join('');
+    },
+
     render3DBookshelves() {
         if(!this.engine3D.scene) return;
         const scene = this.engine3D.scene;
