@@ -160,5 +160,39 @@ const api = {
             method: 'POST'
         });
         return await res.json();
+    },
+
+    async exportBookPdf(bookId) {
+        const res = await fetch(`${this.baseUrl}/books/${bookId}/export_pdf`);
+        if (!res.ok) {
+            let errorText = "Failed to export PDF";
+            try {
+                const errData = await res.json();
+                if (errData.error) errorText = errData.error;
+            } catch (e) {}
+            throw new Error(errorText);
+        }
+        
+        const blob = await res.blob();
+        
+        // Extract filename from Content-Disposition if possible
+        let filename = "Export.pdf";
+        const disposition = res.headers.get('Content-Disposition');
+        if (disposition && disposition.indexOf('attachment') !== -1) {
+            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches != null && matches[1]) { 
+                filename = matches[1].replace(/['"]/g, '');
+            }
+        }
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
     }
 };

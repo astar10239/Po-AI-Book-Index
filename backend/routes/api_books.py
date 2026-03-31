@@ -132,3 +132,81 @@ def update_metadata(book_id):
             
     db.session.commit()
     return jsonify(book.to_dict()), 200
+
+import io
+from flask import send_file
+
+@books_bp.route('/<int:book_id>/export_pdf', methods=['GET'])
+def export_book_pdf(book_id):
+    """Generate an HTML-structured PDF dump of the book's contents."""
+    book = Book.query.get_or_404(book_id)
+    
+    try:
+        from xhtml2pdf import pisa
+        import markdown
+    except ImportError:
+        return jsonify({'error': 'PDF generation libraries (xhtml2pdf, markdown) are not installed.'}), 500
+
+    html_content = f"""
+    <html>
+    <head>
+        <style>
+            @page {{
+                size: a4 portrait;
+                margin: 2cm;
+            }}
+            body {{
+                font-family: Helvetica, sans-serif;
+                font-size: 11pt;
+                line-height: 1.5;
+            }}
+            h1 {{ font-size: 24pt; text-align: center; color: #333; }}
+            h2 {{ font-size: 16pt; color: #444; margin-top: 15px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }}
+            h3 {{ font-size: 13pt; color: #555; margin-top: 15px; }}
+            .metadata {{ text-align: center; margin-bottom: 30px; color: #666; font-size: 12pt; }}
+            .page-break {{ pdf-pagebreak-before: always; }}
+            pre {{ background-color: #f5f5f5; padding: 10px; font-size: 9pt; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #e0e0e0; }}
+            code {{ background-color: #f5f5f5; padding: 2px 4px; font-size: 10pt; }}
+            blockquote {{ border-left: 4px solid #ccc; margin-left: 0; padding-left: 10px; color: #666; font-style: italic; }}
+            ul, ol {{ margin-bottom: 15px; }}
+            li {{ margin-bottom: 5px; }}
+        </style>
+    </head>
+    <body>
+        <h1>{book.title}</h1>
+        <div class="metadata">
+            <p><strong>Status:</strong> {book.processing_status.capitalize() if book.processing_status else 'Unknown'}</p>
+            <p><strong>Tags:</strong> {', '.join([t.name for t in book.tags]) if book.tags else 'None'}</p>
+            <p><strong>Added:</strong> {book.created_at.strftime('%Y-%m-%d %H:%M') if book.created_at else 'Unknown Date'}</p>
+        </div>
+    """
+    
+    for i, segment in enumerate(book.segments):
+        html_content += f'<div class="page-break"></div>'
+        html_content += f'<h2>Segment {segment.index}: {segment.title or "Untitled"}</h2>'
+        
+        if segment.summary:
+            html_content += '<h3>AI Summary</h3>'
+            # Render Markdown into well-formed HTML
+            html_summary = markdown.markdown(segment.summary)
+            html_content += f'<div>{html_summary}</div>'
+            
+    html_content += "</body></html>"
+    
+    pdf_bytes = io.BytesIO()
+    
+    # Render the HTML blob into a PDF stream
+    pisa_status = pisa.CreatePDF(html_content, dest=pdf_bytes)
+    
+    if pisa_status.err:
+        return jsonify({'error': 'Failed to generate PDF from HTML content.'}), 500
+        
+    pdf_bytes.seek(0)
+    filename = f"{book.title.replace(' ', '_')[:30]}_Dump.pdf"
+    
+    return send_file(
+        pdf_bytes,
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=filename
+    )

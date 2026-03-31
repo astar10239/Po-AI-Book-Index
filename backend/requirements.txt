@@ -47,3 +47,7 @@ tzlocal==5.3.1
 vine==5.1.0
 wcwidth==0.6.0
 Werkzeug==3.1.6
+fpdf2==2.8.1
+Markdown==3.7
+xhtml2pdf==0.2.16
+

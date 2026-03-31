@@ -803,14 +803,24 @@ const app = {
         
         try {
             this.currentBook = await api.getBook(id);
-            document.getElementById('reader-book-title').innerHTML = `
-                ${this.currentBook.title}
+            let buttonsHtml = `
                 <button class="btn btn-sm btn-outline-secondary ms-2 rounded-pill" onclick="app.openEditBookModal()">
                     <i class="bi bi-pencil"></i> Edit
                 </button>
                 <button class="btn btn-sm btn-outline-danger ms-1 rounded-pill" onclick="app.deleteBook()">
                     <i class="bi bi-trash"></i> Delete Book
                 </button>
+            `;
+            if (this.currentBook.processing_status === 'completed') {
+                buttonsHtml += `
+                <button class="btn btn-sm btn-outline-primary ms-1 rounded-pill" onclick="app.exportCurrentBookPdf(this)">
+                    <i class="bi bi-file-earmark-pdf"></i> Export PDF
+                </button>
+                `;
+            }
+            document.getElementById('reader-book-title').innerHTML = `
+                ${this.currentBook.title}
+                ${buttonsHtml}
             `;
             const banner = document.getElementById('upload-progress-banner');
             const pBar = document.getElementById('upload-progress-bar');
@@ -1043,6 +1053,23 @@ const app = {
             this.navigate('dashboard');
         } catch(e) {
             alert("Error deleting book: " + e.message);
+        }
+    },
+
+    async exportCurrentBookPdf(btn) {
+        if (!this.currentBook) return;
+        
+        const originalContent = btn.innerHTML;
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Exporting...`;
+        btn.disabled = true;
+
+        try {
+            await api.exportBookPdf(this.currentBook.id);
+        } catch(e) {
+            alert("Error exporting PDF: " + e.message);
+        } finally {
+            btn.innerHTML = originalContent;
+            btn.disabled = false;
         }
     },
 
